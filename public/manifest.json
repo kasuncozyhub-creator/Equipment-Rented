@@ -1,0 +1,19 @@
+{
+  "name": "Rented - Equipment Rental App",
+  "short_name": "Rented",
+  "description": "Friendly equipment rental app. Cameras, tools, audio gear & more. Rent anything, anywhere.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f0f6ff",
+  "theme_color": "#2563eb",
+  "orientation": "portrait-primary",
+  "lang": "en",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    }
+  ]
+}
