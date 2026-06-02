@@ -14,7 +14,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Rented - Friendly Equipment Rental App",
+  title: "Equipment Rental App",
   description: "Friendly equipment rental PWA. Browse, rent cameras, power tools, audio gear and more.",
   manifest: "/manifest.json",
   appleWebApp: {
