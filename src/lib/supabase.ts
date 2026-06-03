@@ -31,7 +31,7 @@ export interface Customer {
   id: string;
   name: string;
   phone: string;
-  phone2?: string;
+  nic?: string;
   address: string;
   nicFrontPhoto: string;
   nicBackPhoto?: string;
@@ -208,7 +208,7 @@ export const db = {
     return localUsers.some((u: any) => u.phone === phone);
   },
 
-  async getTenant(phone: string): Promise<{ phone: string; name: string } | null> {
+  async getTenant(phone: string): Promise<{ phone: string; name: string; verification_code?: string } | null> {
     try {
       const { data, error } = await supabase.from('tenants').select('*').eq('phone', phone).single();
       if (!error && data) return data;
@@ -227,6 +227,48 @@ export const db = {
       localStorage.setItem('rented_local_users', JSON.stringify([...localUsers, { phone, name }]));
     }
     return { phone, name };
+  },
+
+  async adminListTenants(): Promise<Array<{ phone: string; name: string; verification_code?: string }>> {
+    try {
+      const { data, error } = await supabase.from('tenants').select('*').order('name');
+      if (!error && data) return data;
+    } catch {}
+    return JSON.parse(localStorage.getItem('rented_local_users') || '[]');
+  },
+
+  async adminCreateTenant(phone: string, name: string): Promise<{ phone: string; name: string; verification_code: string }> {
+    const code = Math.floor(1000 + Math.random() * 9000).toString();
+    try {
+      await supabase.from('tenants').insert([{ phone, name, verification_code: code }]);
+      await supabase.from('shop_profiles').insert([{ tenant_phone: phone, name: name + "'s Shop", address: '', phone, description: '' }]);
+    } catch (e) {
+      console.warn("Could not sync admin tenant to Supabase, running locally:", e);
+    }
+    const localUsers = JSON.parse(localStorage.getItem('rented_local_users') || '[]');
+    if (!localUsers.some((u: any) => u.phone === phone)) {
+      localStorage.setItem('rented_local_users', JSON.stringify([...localUsers, { phone, name, verification_code: code }]));
+    }
+    return { phone, name, verification_code: code };
+  },
+
+  async adminDeleteTenant(phone: string): Promise<boolean> {
+    try {
+      await supabase.from('tenants').delete().eq('phone', phone);
+      await supabase.from('shop_profiles').delete().eq('tenant_phone', phone);
+      await supabase.from('equipment').delete().eq('tenant_phone', phone);
+      await supabase.from('rentals').delete().eq('tenant_phone', phone);
+      await supabase.from('customers').delete().eq('tenant_phone', phone);
+    } catch (e) {
+      console.warn("Could not delete tenant from Supabase, running locally:", e);
+    }
+    const localUsers = JSON.parse(localStorage.getItem('rented_local_users') || '[]');
+    localStorage.setItem('rented_local_users', JSON.stringify(localUsers.filter((u: any) => u.phone !== phone)));
+    localStorage.removeItem(`rented_equipment_${phone}`);
+    localStorage.removeItem(`rented_rentals_${phone}`);
+    localStorage.removeItem(`rented_customers_${phone}`);
+    localStorage.removeItem(`rented_shop_profile_${phone}`);
+    return true;
   },
 
   async getEquipment(tenantPhone?: string): Promise<Equipment[]> {
@@ -434,7 +476,6 @@ export const db = {
         image: profile.image || '', logo: profile.logo || '',
         categories: profile.categories || [],
         categories_enabled: profile.categoriesEnabled ?? false,
-        categoriesEnabled: profile.categoriesEnabled ?? false,
         language: profile.language || 'en',
         updated_at: new Date().toISOString()
       });
@@ -449,7 +490,7 @@ export const db = {
       const { data, error } = await query;
       if (error || !data || data.length === 0) return getLocalCustomers(tenantPhone);
       return data.map((c: any) => ({
-        id: c.id, name: c.name, phone: c.phone, phone2: c.phone2,
+        id: c.id, name: c.name, phone: c.phone, nic: c.phone2 || c.nic,
         address: c.address,
         nicFrontPhoto: c.nic_front_photo || c.nicFrontPhoto,
         nicBackPhoto: c.nic_back_photo || c.nicBackPhoto,
@@ -462,7 +503,7 @@ export const db = {
     try {
       const { error } = await supabase.from('customers').insert([{
         id: newItem.id, tenant_phone: tenantPhone, name: newItem.name,
-        phone: newItem.phone, phone2: newItem.phone2, address: newItem.address,
+        phone: newItem.phone, phone2: newItem.nic, address: newItem.address,
         nic_front_photo: newItem.nicFrontPhoto, nic_back_photo: newItem.nicBackPhoto
       }]);
       if (!error) { saveLocalCustomers([...getLocalCustomers(tenantPhone), newItem], tenantPhone); return newItem; }
@@ -506,7 +547,7 @@ export const db = {
           id: c.id,
           name: c.name,
           phone: c.phone,
-          phone2: c.phone2,
+          phone2: c.nic,
           address: c.address,
           nic_front_photo: c.nicFrontPhoto,
           nic_back_photo: c.nicBackPhoto,

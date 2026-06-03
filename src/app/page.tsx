@@ -40,7 +40,7 @@ const i18n = {
     customers_title: 'Customers Directory', customers_sub: "Register and view your shop's rental clients.",
     cust_name: 'Name', cust_contact: 'Contact Info', cust_address: 'Address', cust_docs: 'NIC Documents',
     add_cust: 'Add Customer', reg_cust: 'Register Customer',
-    full_name: 'Full Name', primary_mob: 'Primary Mobile', sec_mob: 'Secondary Mobile',
+    full_name: 'Full Name', primary_mob: 'Primary Mobile', sec_mob: 'Secondary Mobile', nic_number: 'NIC Number',
     address: 'Address', nic_front: 'NIC Front Photo', nic_back: 'NIC Back Photo',
     profile_title: 'Shop Profile', profile_sub: 'Configure your business identity.',
     shop_name: 'Shop Name', shop_address: 'Business Address', shop_phone: 'Phone Number',
@@ -83,7 +83,7 @@ const i18n = {
     customers_title: 'ගනුදෙනුකරු ලැයිස්තුව', customers_sub: 'ගනුදෙනුකරුවන් ලියාපදිංචි කරන්න.',
     cust_name: 'නම', cust_contact: 'දුරකථනය', cust_address: 'ලිපිනය', cust_docs: 'ජාතික හැඳුනුම්',
     add_cust: 'ගනුදෙනුකරු එකතු', reg_cust: 'ලියාපදිංචි කරන්න',
-    full_name: 'සම්පූර්ණ නම', primary_mob: 'ප්‍රධාන දුරකථනය', sec_mob: 'ද්විතීයික දුරකථනය',
+    full_name: 'සම්පූර්ණ නම', primary_mob: 'ප්‍රධාන දුරකථනය', sec_mob: 'ද්විතීයික දුරකථනය', nic_number: 'ජා.හැ. අංකය',
     address: 'ලිපිනය', nic_front: 'ජා.හැ. ඉදිරිපස', nic_back: 'ජා.හැ. පිටුපස',
     profile_title: 'ගබඩා තතු', profile_sub: 'ව්‍යාපාර අනන්‍යතාව සකසන්න.',
     shop_name: 'ගබඩාවේ නම', shop_address: 'ව්‍යාපාර ලිපිනය', shop_phone: 'දුරකථනය',
@@ -252,6 +252,16 @@ export default function RentedApp() {
 
   /* -- Cart customer registration inline -- */
   const [showRegisterInCart, setShowRegisterInCart] = useState(false);
+
+  /* -- Searchable Customer states -- */
+  const [selectedCartCustomer, setSelectedCartCustomer] = useState<Customer | null>(null);
+  const [cartCustomerPhone, setCartCustomerPhone] = useState('');
+  const [cartCustSearchQuery, setCartCustSearchQuery] = useState('');
+  const [cartCustShowSuggestions, setCartCustShowSuggestions] = useState(false);
+
+  const [selectedBookingCustomer, setSelectedBookingCustomer] = useState<Customer | null>(null);
+  const [bCustSearchQuery, setBCustSearchQuery] = useState('');
+  const [bCustShowSuggestions, setBCustShowSuggestions] = useState(false);
 
   /* -- Category icons -- */
   const getCategoryIcon = (name: string) => {
@@ -507,14 +517,15 @@ export default function RentedApp() {
     try {
       for (const ci of cart) {
         for (let i = 0; i < ci.qty; i++) {
-          await db.rentEquipment(ci.item.id, cartStart, cartEnd, cartCustomer, user?.phone);
+          await db.rentEquipment(ci.item.id, cartStart, cartEnd, cartCustomer, user?.phone, cartCustomerPhone || undefined);
         }
       }
       await loadData();
       setCartDone(true);
       setTimeout(() => {
         setCartDone(false); setShowCart(false); setCart([]);
-        setCartCustomer(''); setCartStart(''); setCartEnd('');
+        setCartCustomer(''); setCartCustomerPhone(''); setSelectedCartCustomer(null); setCartCustSearchQuery('');
+        setCartStart(''); setCartEnd('');
       }, 2000);
     } catch (err: any) {
       setCartError(err.message || 'An error occurred.');
@@ -529,7 +540,10 @@ export default function RentedApp() {
       await db.rentEquipment(bookingItem.id, bStart, bEnd, bName, user?.phone, bPhone);
       await loadData();
       setBDone(true);
-      setTimeout(() => { setBDone(false); setBookingItem(null); setBStart(''); setBEnd(''); setBName(''); setBPhone(''); }, 1500);
+      setTimeout(() => {
+        setBDone(false); setBookingItem(null); setBStart(''); setBEnd(''); setBName(''); setBPhone('');
+        setSelectedBookingCustomer(null); setBCustSearchQuery('');
+      }, 1500);
     } catch {}
   }
 
@@ -537,15 +551,32 @@ export default function RentedApp() {
   async function handleInlineRegister(e: React.FormEvent) {
     e.preventDefault();
     setInlineCError('');
-    if (!inlineCName.trim() || !inlineCPhone.trim() || !inlineCAddress.trim()) { setInlineCError('Please fill all required fields.'); return; }
+    if (!inlineCName.trim() || !inlineCPhone.trim() || !inlineCPhone2.trim() || !inlineCAddress.trim()) { setInlineCError('Please fill all required fields.'); return; }
     if (!inlineCNicFront) { setInlineCError('NIC Front photo is required.'); return; }
     if (customers.some(c => c.phone === inlineCPhone.trim())) { setInlineCError('This mobile number is already registered.'); return; }
-    await db.addCustomer({ name: inlineCName.trim(), phone: inlineCPhone.trim(), phone2: inlineCPhone2 || undefined, address: inlineCAddress.trim(), nicFrontPhoto: inlineCNicFront, nicBackPhoto: inlineCNicBack || undefined }, user?.phone);
+    const newlyCreated = await db.addCustomer({
+      name: inlineCName.trim(),
+      phone: inlineCPhone.trim(),
+      nic: inlineCPhone2.trim(),
+      address: inlineCAddress.trim(),
+      nicFrontPhoto: inlineCNicFront,
+      nicBackPhoto: inlineCNicBack || undefined
+    }, user?.phone);
     await loadData();
-    setBName(inlineCName.trim());
-    setBPhone(inlineCPhone.trim());
-    setCartCustomer(inlineCName.trim());
+    
+    // Auto-select the customer
+    setBName(newlyCreated.name);
+    setBPhone(newlyCreated.phone);
+    setSelectedBookingCustomer(newlyCreated);
+    setBCustSearchQuery(newlyCreated.name);
+    
+    setCartCustomer(newlyCreated.name);
+    setCartCustomerPhone(newlyCreated.phone);
+    setSelectedCartCustomer(newlyCreated);
+    setCartCustSearchQuery(newlyCreated.name);
+
     setShowRegisterInBooking(false);
+    setShowRegisterInCart(false);
     setShowCustRegModal(false);
     setInlineCName(''); setInlineCPhone(''); setInlineCPhone2(''); setInlineCAddress(''); setInlineCNicFront(''); setInlineCNicBack(''); setInlineCError('');
   }
@@ -590,10 +621,10 @@ export default function RentedApp() {
   async function handleAddCustomer(e: React.FormEvent) {
     e.preventDefault();
     setCError('');
-    if (!cName.trim() || !cPhone.trim() || !cAddress.trim()) { setCError('Please fill in all required fields.'); return; }
+    if (!cName.trim() || !cPhone.trim() || !cPhone2.trim() || !cAddress.trim()) { setCError('Please fill in all required fields.'); return; }
     if (!cNicFront) { setCError('NIC Front Photo is required.'); return; }
     if (customers.some(c => c.phone === cPhone.trim())) { setCError('A customer with this number is already registered.'); return; }
-    await db.addCustomer({ name: cName.trim(), phone: cPhone.trim(), phone2: cPhone2 || undefined, address: cAddress.trim(), nicFrontPhoto: cNicFront, nicBackPhoto: cNicBack || undefined }, user?.phone);
+    await db.addCustomer({ name: cName.trim(), phone: cPhone.trim(), nic: cPhone2.trim(), address: cAddress.trim(), nicFrontPhoto: cNicFront, nicBackPhoto: cNicBack || undefined }, user?.phone);
     await loadData();
     setCDone(true);
     setTimeout(() => { setCDone(false); setCName(''); setCPhone(''); setCPhone2(''); setCAddress(''); setCNicFront(''); setCNicBack(''); }, 1500);
@@ -1059,7 +1090,7 @@ export default function RentedApp() {
                                 <td style={{ padding: '14px 16px', fontWeight: 600, color: 'var(--text-900)' }}>{c.name}</td>
                                 <td style={{ padding: '14px 16px' }}>
                                   <div style={{ color: 'var(--blue-600)', fontWeight: 600 }}>{c.phone}</div>
-                                  {c.phone2 && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>Alt: {c.phone2}</div>}
+                                  {c.nic && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>NIC: {c.nic}</div>}
                                 </td>
                                 <td style={{ padding: '14px 16px', color: 'var(--text-600)' }}>{c.address}</td>
                                 <td style={{ padding: '14px 16px' }}>
@@ -1085,7 +1116,7 @@ export default function RentedApp() {
                             </div>
                             <div className="cust-info">
                               <div className="cust-name">{c.name}</div>
-                              <div className="cust-phone">{c.phone}{c.phone2 ? ` · ${c.phone2}` : ''}</div>
+                              <div className="cust-phone">{c.phone}{c.nic ? ` · NIC: ${c.nic}` : ''}</div>
                               {c.address && <div className="cust-addr">{c.address}</div>}
                             </div>
                             <div className="cust-docs">
@@ -1118,7 +1149,7 @@ export default function RentedApp() {
                           <div><label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{t('full_name')} *</label><input type="text" className="form-input" placeholder="Sarah Jenkins" value={cName} onChange={e => setCName(e.target.value)} required /></div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                             <div><label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{t('primary_mob')} *</label><input type="tel" className="form-input" placeholder="0771234567" value={cPhone} onChange={e => setCPhone(e.target.value)} required /></div>
-                            <div><label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{t('sec_mob')}</label><input type="tel" className="form-input" placeholder="Optional" value={cPhone2} onChange={e => setCPhone2(e.target.value)} /></div>
+                            <div><label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{t('nic_number')} *</label><input type="text" className="form-input" placeholder="e.g. 199912345678" value={cPhone2} onChange={e => setCPhone2(e.target.value)} required /></div>
                           </div>
                           <div><label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{t('address')} *</label><textarea className="form-input" rows={2} placeholder="12 Main Street..." value={cAddress} onChange={e => setCAddress(e.target.value)} style={{ resize: 'none' }} required /></div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -1392,7 +1423,7 @@ export default function RentedApp() {
                     <input type="text" className="form-input" placeholder={t('full_name') + ' *'} value={inlineCName} onChange={e => setInlineCName(e.target.value)} required />
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                       <input type="tel" className="form-input" placeholder={t('primary_mob') + ' *'} value={inlineCPhone} onChange={e => setInlineCPhone(e.target.value)} required />
-                      <input type="tel" className="form-input" placeholder={t('sec_mob')} value={inlineCPhone2} onChange={e => setInlineCPhone2(e.target.value)} />
+                      <input type="text" className="form-input" placeholder={t('nic_number') + ' *'} value={inlineCPhone2} onChange={e => setInlineCPhone2(e.target.value)} required />
                     </div>
                     <textarea className="form-input" placeholder={t('address') + ' *'} rows={2} value={inlineCAddress} onChange={e => setInlineCAddress(e.target.value)} style={{ resize: 'none' }} required />
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -1449,15 +1480,87 @@ export default function RentedApp() {
                   <form onSubmit={handleRentAll} style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
                     {cartError && <p style={{ color: 'var(--red)', fontSize: 12, fontWeight: 600 }}>{cartError}</p>}
 
-                    <div>
+                     <div>
                       <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{t('select_cust')} *</label>
-                      <select className="form-input" value={cartCustomer} onChange={e => setCartCustomer(e.target.value)} required>
-                        <option value="">-- {t('select_cust')} --</option>
-                        {customers.map(c => <option key={c.id} value={c.name}>{c.name} ({c.phone})</option>)}
-                      </select>
-                      <button type="button" onClick={() => setShowRegisterInCart(true)} style={{ marginTop: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb', fontSize: 12, fontWeight: 700, padding: 0, display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'inherit' }}>
-                        <PlusCircle size={13} />{t('register_cust_btn')}
-                      </button>
+                      {selectedCartCustomer ? (
+                        <div className="card-flat" style={{ padding: 12, border: '1px solid #cbd5e1', background: '#f8fafc', borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontWeight: 800, fontSize: 13, color: '#0f172a' }}>{selectedCartCustomer.name}</span>
+                            <button type="button" onClick={() => { setSelectedCartCustomer(null); setCartCustomer(''); setCartCustomerPhone(''); }} className="auth-link" style={{ fontSize: 12, fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Change</button>
+                          </div>
+                          <div style={{ fontSize: 11, color: '#475569', display: 'flex', flexWrap: 'wrap', gap: '8px 12px' }}>
+                            <span>Phone: {selectedCartCustomer.phone}</span>
+                            <span>NIC: {selectedCartCustomer.nic || 'N/A'}</span>
+                            <span style={{ width: '100%' }}>Address: {selectedCartCustomer.address}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ position: 'relative' }}>
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder="Search by Name, NIC, or Address..."
+                            value={cartCustSearchQuery}
+                            onChange={e => {
+                              setCartCustSearchQuery(e.target.value);
+                              setCartCustShowSuggestions(true);
+                            }}
+                            onFocus={() => setCartCustShowSuggestions(true)}
+                            required
+                          />
+                          {cartCustShowSuggestions && (
+                            <>
+                              <div style={{ position: 'fixed', inset: 0, zIndex: 195 }} onClick={() => setCartCustShowSuggestions(false)} />
+                              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 200, maxHeight: 200, overflowY: 'auto', marginTop: 4 }}>
+                                {(() => {
+                                  const q = cartCustSearchQuery.trim().toLowerCase();
+                                  let filtered = [];
+                                  if (!q) {
+                                    filtered = [...customers].slice(-3).reverse();
+                                  } else {
+                                    filtered = customers.filter(c => 
+                                      c.name.toLowerCase().includes(q) || 
+                                      (c.nic || '').toLowerCase().includes(q) || 
+                                      c.address.toLowerCase().includes(q) || 
+                                      c.phone.toLowerCase().includes(q)
+                                    ).slice(0, 4);
+                                  }
+                                  
+                                  if (filtered.length === 0) {
+                                    return <div style={{ padding: '10px 12px', fontSize: 12, color: '#6b7280', fontStyle: 'italic' }}>No matching customers found</div>;
+                                  }
+                                  
+                                  return filtered.map(c => (
+                                    <div
+                                      key={c.id}
+                                      onClick={() => {
+                                        setSelectedCartCustomer(c);
+                                        setCartCustomer(c.name);
+                                        setCartCustomerPhone(c.phone);
+                                        setCartCustShowSuggestions(false);
+                                      }}
+                                      style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: 2 }}
+                                      className="table-row-hover"
+                                    >
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 12, color: '#0f172a' }}>
+                                        <span>{c.name}</span>
+                                        <span style={{ color: '#2563eb', fontSize: 11 }}>{c.phone}</span>
+                                      </div>
+                                      <div style={{ fontSize: 11, color: '#6b7280', display: 'flex', gap: 10 }}>
+                                        <span>NIC: {c.nic || 'N/A'}</span>
+                                        <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: 180 }}>Addr: {c.address}</span>
+                                      </div>
+                                    </div>
+                                  ));
+                                })()}
+                              </div>
+                            </>
+                          )}
+                          <button type="button" onClick={() => setShowRegisterInCart(true)} style={{ marginTop: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb', fontSize: 12, fontWeight: 700, padding: 0, display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'inherit' }}>
+                            <PlusCircle size={13} />{t('register_cust_btn')}
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
@@ -1527,7 +1630,7 @@ export default function RentedApp() {
                     <input type="text" className="form-input" placeholder={t('full_name') + ' *'} value={inlineCName} onChange={e => setInlineCName(e.target.value)} required />
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                       <input type="tel" className="form-input" placeholder={t('primary_mob') + ' *'} value={inlineCPhone} onChange={e => setInlineCPhone(e.target.value)} required />
-                      <input type="tel" className="form-input" placeholder={t('sec_mob')} value={inlineCPhone2} onChange={e => setInlineCPhone2(e.target.value)} />
+                      <input type="text" className="form-input" placeholder={t('nic_number') + ' *'} value={inlineCPhone2} onChange={e => setInlineCPhone2(e.target.value)} required />
                     </div>
                     <textarea className="form-input" placeholder={t('address') + ' *'} rows={2} value={inlineCAddress} onChange={e => setInlineCAddress(e.target.value)} style={{ resize: 'none' }} required />
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -1576,13 +1679,85 @@ export default function RentedApp() {
 
                   <div>
                     <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5 }}>{t('select_cust')} *</label>
-                    <select className="form-input" value={bName} onChange={e => { setBName(e.target.value); const c = customers.find(c => c.name === e.target.value); setBPhone(c?.phone || ''); }} required>
-                      <option value="">-- {t('select_cust')} --</option>
-                      {customers.map(c => <option key={c.id} value={c.name}>{c.name} ({c.phone})</option>)}
-                    </select>
-                    <button type="button" onClick={() => setShowCustRegModal(true)} style={{ marginTop: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb', fontSize: 12, fontWeight: 700, padding: 0, display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'inherit' }}>
-                      <PlusCircle size={13} />{t('register_cust_btn')}
-                    </button>
+                    {selectedBookingCustomer ? (
+                      <div className="card-flat" style={{ padding: 12, border: '1px solid #cbd5e1', background: '#f8fafc', borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontWeight: 800, fontSize: 13, color: '#0f172a' }}>{selectedBookingCustomer.name}</span>
+                          <button type="button" onClick={() => { setSelectedBookingCustomer(null); setBName(''); setBPhone(''); }} className="auth-link" style={{ fontSize: 12, fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Change</button>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#475569', display: 'flex', flexWrap: 'wrap', gap: '8px 12px' }}>
+                          <span>Phone: {selectedBookingCustomer.phone}</span>
+                          <span>NIC: {selectedBookingCustomer.nic || 'N/A'}</span>
+                          <span style={{ width: '100%' }}>Address: {selectedBookingCustomer.address}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ position: 'relative' }}>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="Search by Name, NIC, or Address..."
+                          value={bCustSearchQuery}
+                          onChange={e => {
+                            setBCustSearchQuery(e.target.value);
+                            setBCustShowSuggestions(true);
+                          }}
+                          onFocus={() => setBCustShowSuggestions(true)}
+                          required
+                        />
+                        {bCustShowSuggestions && (
+                          <>
+                            <div style={{ position: 'fixed', inset: 0, zIndex: 195 }} onClick={() => setBCustShowSuggestions(false)} />
+                            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 200, maxHeight: 200, overflowY: 'auto', marginTop: 4 }}>
+                              {(() => {
+                                const q = bCustSearchQuery.trim().toLowerCase();
+                                let filtered = [];
+                                if (!q) {
+                                  filtered = [...customers].slice(-3).reverse();
+                                } else {
+                                  filtered = customers.filter(c => 
+                                    c.name.toLowerCase().includes(q) || 
+                                    (c.nic || '').toLowerCase().includes(q) || 
+                                    c.address.toLowerCase().includes(q) || 
+                                    c.phone.toLowerCase().includes(q)
+                                  ).slice(0, 4);
+                                }
+                                
+                                if (filtered.length === 0) {
+                                  return <div style={{ padding: '10px 12px', fontSize: 12, color: '#6b7280', fontStyle: 'italic' }}>No matching customers found</div>;
+                                }
+                                
+                                return filtered.map(c => (
+                                  <div
+                                    key={c.id}
+                                    onClick={() => {
+                                      setSelectedBookingCustomer(c);
+                                      setBName(c.name);
+                                      setBPhone(c.phone);
+                                      setBCustShowSuggestions(false);
+                                    }}
+                                    style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: 2 }}
+                                    className="table-row-hover"
+                                  >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 12, color: '#0f172a' }}>
+                                      <span>{c.name}</span>
+                                      <span style={{ color: '#2563eb', fontSize: 11 }}>{c.phone}</span>
+                                    </div>
+                                    <div style={{ fontSize: 11, color: '#6b7280', display: 'flex', gap: 10 }}>
+                                      <span>NIC: {c.nic || 'N/A'}</span>
+                                      <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: 180 }}>Addr: {c.address}</span>
+                                    </div>
+                                  </div>
+                                ));
+                              })()}
+                            </div>
+                          </>
+                        )}
+                        <button type="button" onClick={() => setShowCustRegModal(true)} style={{ marginTop: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb', fontSize: 12, fontWeight: 700, padding: 0, display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'inherit' }}>
+                          <PlusCircle size={13} />{t('register_cust_btn')}
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
@@ -1841,8 +2016,8 @@ export default function RentedApp() {
                   <p style={{ fontSize: 14, color: '#2563eb', fontWeight: 800 }}>{selectedCustomer.phone}</p>
                 </div>
                 <div>
-                  <p style={{ fontSize: 10, textTransform: 'uppercase', color: '#94a3b8', fontWeight: 800, letterSpacing: 0.5, marginBottom: 2 }}>{t('sec_mob')}</p>
-                  <p style={{ fontSize: 14, color: '#475569', fontWeight: 700 }}>{selectedCustomer.phone2 || 'Not provided'}</p>
+                  <p style={{ fontSize: 10, textTransform: 'uppercase', color: '#94a3b8', fontWeight: 800, letterSpacing: 0.5, marginBottom: 2 }}>{t('nic_number')}</p>
+                  <p style={{ fontSize: 14, color: '#475569', fontWeight: 700 }}>{selectedCustomer.nic || 'Not provided'}</p>
                 </div>
               </div>
 
@@ -1895,7 +2070,7 @@ export default function RentedApp() {
               <input type="text" className="form-input" placeholder={t('full_name') + ' *'} value={inlineCName} onChange={e => setInlineCName(e.target.value)} required />
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <input type="tel" className="form-input" placeholder={t('primary_mob') + ' *'} value={inlineCPhone} onChange={e => setInlineCPhone(e.target.value)} required />
-                <input type="tel" className="form-input" placeholder={t('sec_mob')} value={inlineCPhone2} onChange={e => setInlineCPhone2(e.target.value)} />
+                <input type="text" className="form-input" placeholder={t('nic_number') + ' *'} value={inlineCPhone2} onChange={e => setInlineCPhone2(e.target.value)} required />
               </div>
               <textarea className="form-input" placeholder={t('address') + ' *'} rows={2} value={inlineCAddress} onChange={e => setInlineCAddress(e.target.value)} style={{ resize: 'none' }} required />
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>

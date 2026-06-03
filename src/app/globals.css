@@ -1515,3 +1515,10 @@ select.form-input {
   .equip-body { padding: 8px 10px; gap: 6px; }
   .equip-price { font-size: 14px; }
 }
+
+/* Hide stats card icons in PWA standalone mode and mobile viewports */
+@media (max-width: 1023px), (display-mode: standalone) {
+  .rev-icon-box {
+    display: none !important;
+  }
+}
