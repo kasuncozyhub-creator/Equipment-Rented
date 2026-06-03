@@ -273,6 +273,9 @@ export default function RentedApp() {
   const loadData = useCallback(async () => {
     if (!user) return;
     try {
+      // Sync offline data to Supabase first if any exists on this device
+      await db.syncLocalData(user.phone);
+      
       const [equip, rents, custs, profile] = await Promise.all([
         db.getEquipment(user.phone),
         db.getRentals(user.phone),
@@ -330,7 +333,11 @@ export default function RentedApp() {
 
   /* ── Close dropdowns on outside click ── */
   useEffect(() => {
-    const handler = () => setActiveMenuId(null);
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('.menu-trigger')) return;
+      setActiveMenuId(null);
+    };
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
   }, []);
@@ -884,8 +891,8 @@ export default function RentedApp() {
                                 <p style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{item.description}</p>
                               </div>
                               <div style={{ position: 'relative', flexShrink: 0 }}>
-                                <button type="button" onClick={e => { e.stopPropagation(); setActiveMenuId(activeMenuId === item.id ? null : item.id); }} style={{ background: '#f8fafc', border: '1px solid #cbd5e1', cursor: 'pointer', color: '#475569', padding: '4px 6px', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                  <MoreVertical size={16} />
+                                <button type="button" className="menu-trigger" onClick={e => { e.stopPropagation(); setActiveMenuId(activeMenuId === item.id ? null : item.id); }} style={{ background: '#f8fafc', border: '1px solid #cbd5e1', cursor: 'pointer', color: '#475569', padding: '4px 6px', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <MoreVertical size={16} style={{ pointerEvents: 'none' }} />
                                 </button>
                                 {activeMenuId === item.id && (
                                   <div style={{ position: 'absolute', right: 0, top: 30, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10, display: 'flex', flexDirection: 'column', minWidth: 110, overflow: 'hidden' }}>
@@ -900,17 +907,17 @@ export default function RentedApp() {
                               </div>
                             </div>
 
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                              <div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                 <div className="equip-price">Rs.{(item.pricePerDay).toLocaleString()}<span> /day</span></div>
-                                <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, marginTop: 2 }}>{t('stock')}: {avC}/{totalCount} {t('available_units')}</div>
+                                <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>{t('stock')}: {avC}/{totalCount} {t('available_units')}</div>
                               </div>
-                              <div style={{ display: 'flex', gap: 6, flexDirection: 'column', alignItems: 'flex-end' }}>
-                                <button disabled={!isAvailable} onClick={() => setBookingItem(item)} className={`btn btn-sm ${isAvailable ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: 12 }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
+                                <button disabled={!isAvailable} onClick={() => setBookingItem(item)} className={`btn btn-sm ${isAvailable ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: 12, width: '100%', padding: '8px 12px', justifyContent: 'center' }}>
                                   {isAvailable ? <><Calendar size={13} /> {t('rent_now')}</> : t('rented_out')}
                                 </button>
                                 {isAvailable && (
-                                  <button onClick={() => addToCart(item)} className="btn btn-sm btn-secondary" style={{ fontSize: 12, padding: '5px 10px' }}>
+                                  <button onClick={() => addToCart(item)} className="btn btn-sm btn-secondary" style={{ fontSize: 12, width: '100%', padding: '8px 12px', justifyContent: 'center' }}>
                                     <ShoppingCart size={12} />{inCart ? '✓ Added' : t('add_to_cart')}
                                   </button>
                                 )}
@@ -1453,7 +1460,7 @@ export default function RentedApp() {
                       </button>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
                       <div>
                         <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{t('start_date')} *</label>
                         <input className="form-input" type="date" value={cartStart} onChange={e => setCartStart(e.target.value)} min={today} required />
@@ -1578,7 +1585,7 @@ export default function RentedApp() {
                     </button>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
                     <div><label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5 }}>{t('start_date')} *</label><input className="form-input" type="date" required min={today} value={bStart} onChange={e => setBStart(e.target.value)} /></div>
                     <div><label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5 }}>{t('end_date')} *</label><input className="form-input" type="date" required min={bStart || today} value={bEnd} onChange={e => setBEnd(e.target.value)} /></div>
                   </div>

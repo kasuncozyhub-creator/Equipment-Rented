@@ -235,7 +235,19 @@ export const db = {
       if (tenantPhone) query.eq('tenant_phone', tenantPhone);
       const { data, error } = await query;
       if (error || !data || data.length === 0) return getLocalEquipment(tenantPhone);
-      return data;
+      return data.map((e: any) => ({
+        id: e.id,
+        name: e.name,
+        category: e.category,
+        description: e.description,
+        pricePerDay: e.pricePerDay || e.price_per_day || 0,
+        image: e.image,
+        available: e.available,
+        rating: e.rating,
+        owner: e.owner,
+        location: e.location,
+        units: e.units
+      }));
     } catch { return getLocalEquipment(tenantPhone); }
   },
 
@@ -245,8 +257,39 @@ export const db = {
       rating: 5.0, available: true, tenant_phone: tenantPhone
     };
     try {
-      const { data, error } = await supabase.from('equipment').insert([newItem]).select().single();
-      if (!error && data) { const local = getLocalEquipment(tenantPhone); saveLocalEquipment([data, ...local], tenantPhone); return data; }
+      const dbItem = {
+        id: newItem.id,
+        name: newItem.name,
+        category: newItem.category,
+        description: newItem.description,
+        price_per_day: newItem.pricePerDay,
+        image: newItem.image,
+        available: newItem.available,
+        rating: newItem.rating,
+        owner: newItem.owner,
+        location: newItem.location,
+        units: newItem.units || 1,
+        tenant_phone: tenantPhone
+      };
+      const { data, error } = await supabase.from('equipment').insert([dbItem]).select().single();
+      if (!error && data) {
+        const mappedData: Equipment = {
+          id: data.id,
+          name: data.name,
+          category: data.category,
+          description: data.description,
+          pricePerDay: data.pricePerDay || data.price_per_day || 0,
+          image: data.image,
+          available: data.available,
+          rating: data.rating,
+          owner: data.owner,
+          location: data.location,
+          units: data.units
+        };
+        const local = getLocalEquipment(tenantPhone);
+        saveLocalEquipment([mappedData, ...local], tenantPhone);
+        return mappedData;
+      }
     } catch {}
     const local = getLocalEquipment(tenantPhone);
     saveLocalEquipment([newItem as Equipment, ...local], tenantPhone);
@@ -261,8 +304,29 @@ export const db = {
 
   async updateEquipment(id: string, updates: Partial<Equipment>): Promise<Equipment | null> {
     try {
-      const { data, error } = await supabase.from('equipment').update(updates).eq('id', id).select().single();
-      if (!error && data) { saveLocalEquipment(getLocalEquipment().map(e => e.id === id ? data : e)); return data; }
+      const dbUpdates: any = { ...updates };
+      if (updates.pricePerDay !== undefined) {
+        dbUpdates.price_per_day = updates.pricePerDay;
+        delete dbUpdates.pricePerDay;
+      }
+      const { data, error } = await supabase.from('equipment').update(dbUpdates).eq('id', id).select().single();
+      if (!error && data) {
+        const mappedData: Equipment = {
+          id: data.id,
+          name: data.name,
+          category: data.category,
+          description: data.description,
+          pricePerDay: data.pricePerDay || data.price_per_day || 0,
+          image: data.image,
+          available: data.available,
+          rating: data.rating,
+          owner: data.owner,
+          location: data.location,
+          units: data.units
+        };
+        saveLocalEquipment(getLocalEquipment().map(e => e.id === id ? mappedData : e));
+        return mappedData;
+      }
     } catch {}
     const local = getLocalEquipment();
     const existing = local.find(e => e.id === id);
@@ -406,4 +470,101 @@ export const db = {
     saveLocalCustomers([...getLocalCustomers(tenantPhone), newItem], tenantPhone);
     return newItem;
   },
+
+  async syncLocalData(tenantPhone: string): Promise<void> {
+    try {
+      // 1. Sync Equipment
+      const localEquip = getLocalEquipment(tenantPhone);
+      if (localEquip.length > 0) {
+        const { data: dbEquip } = await supabase.from('equipment').select('id').eq('tenant_phone', tenantPhone);
+        const dbIds = new Set(dbEquip?.map((e: any) => e.id) || []);
+        const toInsert = localEquip.filter(e => !dbIds.has(e.id)).map(e => ({
+          id: e.id,
+          name: e.name,
+          category: e.category,
+          description: e.description,
+          pricePerDay: e.pricePerDay,
+          image: e.image,
+          available: e.available,
+          rating: e.rating,
+          owner: e.owner,
+          location: e.location,
+          units: e.units || 1,
+          tenant_phone: tenantPhone
+        }));
+        if (toInsert.length > 0) {
+          await supabase.from('equipment').insert(toInsert);
+        }
+      }
+
+      // 2. Sync Customers
+      const localCust = getLocalCustomers(tenantPhone);
+      if (localCust.length > 0) {
+        const { data: dbCust } = await supabase.from('customers').select('id').eq('tenant_phone', tenantPhone);
+        const dbIds = new Set(dbCust?.map((c: any) => c.id) || []);
+        const toInsert = localCust.filter(c => !dbIds.has(c.id)).map(c => ({
+          id: c.id,
+          name: c.name,
+          phone: c.phone,
+          phone2: c.phone2,
+          address: c.address,
+          nic_front_photo: c.nicFrontPhoto,
+          nic_back_photo: c.nicBackPhoto,
+          tenant_phone: tenantPhone
+        }));
+        if (toInsert.length > 0) {
+          await supabase.from('customers').insert(toInsert);
+        }
+      }
+
+      // 3. Sync Rentals
+      const localRentals = getLocalRentals(tenantPhone);
+      if (localRentals.length > 0) {
+        const { data: dbRent } = await supabase.from('rentals').select('id').eq('tenant_phone', tenantPhone);
+        const dbIds = new Set(dbRent?.map((r: any) => r.id) || []);
+        const toInsert = localRentals.filter(r => !dbIds.has(r.id)).map(r => ({
+          id: r.id,
+          equipment_id: r.equipmentId,
+          equipmentName: r.equipmentName,
+          equipmentImage: r.equipmentImage,
+          start_date: r.startDate,
+          end_date: r.endDate,
+          total_cost: r.totalCost,
+          status: r.status,
+          renter_name: r.renterName,
+          renter_phone: r.renterPhone,
+          payment_received: r.paymentReceived,
+          returned_date: r.returnedDate,
+          extended_end_date: r.extendedEndDate,
+          notes: r.notes,
+          tenant_phone: tenantPhone
+        }));
+        if (toInsert.length > 0) {
+          await supabase.from('rentals').insert(toInsert);
+        }
+      }
+
+      // 4. Sync Shop Profile
+      const localProfile = getLocalShopProfile(tenantPhone);
+      if (localProfile) {
+        const { data: dbProfile } = await supabase.from('shop_profiles').select('tenant_phone').eq('tenant_phone', tenantPhone).single();
+        if (!dbProfile) {
+          await supabase.from('shop_profiles').insert([{
+            tenant_phone: tenantPhone,
+            name: localProfile.name,
+            address: localProfile.address,
+            phone: localProfile.phone,
+            description: localProfile.description,
+            image: localProfile.image || '',
+            logo: localProfile.logo || '',
+            categories: localProfile.categories || [],
+            categories_enabled: localProfile.categoriesEnabled ?? false,
+            language: localProfile.language || 'en',
+          }]);
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to sync local data to Supabase:", err);
+    }
+  }
 };
