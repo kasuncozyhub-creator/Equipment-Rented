@@ -197,6 +197,88 @@ export const saveLocalShopProfile = (profile: ShopProfile, tenantPhone?: string)
   }
 };
 
+// Helper to upload base64 to Supabase storage bucket 'customers'
+const uploadNicPhotoToSupabase = async (base64Data: string, type: 'front' | 'back'): Promise<string> => {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.warn("Supabase not configured. Storing image as base64.");
+    return base64Data;
+  }
+  
+  try {
+    // Check if it's base64, if not it's already a URL
+    if (!base64Data || !base64Data.startsWith('data:image')) {
+      return base64Data;
+    }
+    
+    // Convert base64 to Blob
+    const base64Content = base64Data.split(';base64,').pop();
+    if (!base64Content) return base64Data;
+    
+    const byteCharacters = atob(base64Content);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: 'image/jpeg' });
+    
+    // Generate clean filename
+    const cleanFileName = `nic_${type}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}.jpg`;
+    
+    // 1. Upload to Supabase Storage
+    const { data, error } = await supabase.storage
+      .from('customers')
+      .upload(cleanFileName, blob, {
+        contentType: 'image/jpeg',
+        cacheControl: '3600',
+        upsert: true
+      });
+      
+    if (error) {
+      console.warn(`Supabase upload failed for ${type}. Attempting to create bucket 'customers'...`, error);
+      // Try to create the bucket dynamically in case it does not exist
+      try {
+        await supabase.storage.createBucket('customers', {
+          public: true,
+          fileSizeLimit: 10485760 // 10MB
+        });
+        
+        // Retry upload
+        const { data: retryData, error: retryError } = await supabase.storage
+          .from('customers')
+          .upload(cleanFileName, blob, {
+            contentType: 'image/jpeg',
+            cacheControl: '3600',
+            upsert: true
+          });
+          
+        if (retryError) {
+          console.error("Supabase storage upload retry error:", retryError);
+          return base64Data;
+        }
+        
+        const { data: { publicUrl } } = supabase.storage
+          .from('customers')
+          .getPublicUrl(cleanFileName);
+          
+        return publicUrl;
+      } catch (err) {
+        console.error("Could not create bucket or upload:", err);
+        return base64Data; // fallback
+      }
+    }
+    
+    const { data: { publicUrl } } = supabase.storage
+      .from('customers')
+      .getPublicUrl(cleanFileName);
+      
+    return publicUrl;
+  } catch (err) {
+    console.error("Error in uploadNicPhotoToSupabase:", err);
+    return base64Data; // fallback
+  }
+};
+
 // ── Database helpers ──
 export const db = {
   async checkTenantExists(phone: string): Promise<boolean> {
@@ -479,6 +561,14 @@ export const db = {
         language: profile.language || 'en',
         updated_at: new Date().toISOString()
       });
+      // Sync the name back to the tenants table too!
+      await supabase.from('tenants').update({ name: profile.name }).eq('phone', tenantPhone);
+    } catch {}
+    // Also update local user list if running locally
+    try {
+      const localUsers = JSON.parse(localStorage.getItem('rented_local_users') || '[]');
+      const updatedLocal = localUsers.map((u: any) => u.phone === tenantPhone ? { ...u, name: profile.name } : u);
+      localStorage.setItem('rented_local_users', JSON.stringify(updatedLocal));
     } catch {}
     return profile;
   },
@@ -499,7 +589,15 @@ export const db = {
   },
 
   async addCustomer(item: Omit<Customer, 'id'>, tenantPhone?: string): Promise<Customer> {
-    const newItem: Customer = { ...item, id: 'c-' + Math.random().toString(36).substr(2, 9) };
+    const frontPhoto = await uploadNicPhotoToSupabase(item.nicFrontPhoto, 'front');
+    const backPhoto = item.nicBackPhoto ? await uploadNicPhotoToSupabase(item.nicBackPhoto, 'back') : undefined;
+
+    const newItem: Customer = { 
+      ...item, 
+      nicFrontPhoto: frontPhoto, 
+      nicBackPhoto: backPhoto,
+      id: 'c-' + Math.random().toString(36).substr(2, 9) 
+    };
     try {
       const { error } = await supabase.from('customers').insert([{
         id: newItem.id, tenant_phone: tenantPhone, name: newItem.name,
@@ -510,6 +608,12 @@ export const db = {
     } catch {}
     saveLocalCustomers([...getLocalCustomers(tenantPhone), newItem], tenantPhone);
     return newItem;
+  },
+
+  async deleteCustomer(id: string, tenantPhone?: string): Promise<boolean> {
+    try { await supabase.from('customers').delete().eq('id', id); } catch {}
+    saveLocalCustomers(getLocalCustomers(tenantPhone).filter(c => c.id !== id), tenantPhone);
+    return true;
   },
 
   async syncLocalData(tenantPhone: string): Promise<void> {

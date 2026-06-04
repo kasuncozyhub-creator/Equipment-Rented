@@ -1522,3 +1522,36 @@ select.form-input {
     display: none !important;
   }
 }
+
+/* ══════════════════════════════════════════════
+   NIC SCANNER ANIMATIONS
+══════════════════════════════════════════════ */
+@keyframes sweep {
+  0% { top: 0%; }
+  50% { top: 100%; }
+  100% { top: 0%; }
+}
+
+.scanner-container {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+.scanner-laser {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0) 0%, #2563eb 50%, rgba(37, 99, 235, 0) 100%);
+  box-shadow: 0 0 12px #2563eb, 0 0 20px #3b82f6;
+  animation: sweep 2.5s infinite linear;
+  z-index: 10;
+}
+
+/* Hide scanner step labels on small mobile to fit steps */
+@media (max-width: 480px) {
+  .step-label-text {
+    display: none;
+  }
+}

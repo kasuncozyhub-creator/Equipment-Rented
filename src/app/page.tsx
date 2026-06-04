@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { db, Equipment, Rental, supabase, Customer, ShopProfile } from '@/lib/supabase';
+import NICScanner from '@/components/NICScanner';
 import {
   Search, PlusCircle, Compass, BookOpen, Calendar, WifiOff, X, Camera,
   User, Shield, CheckCircle, Smartphone, Phone, Clock, Wrench, Truck,
@@ -239,6 +240,7 @@ export default function RentedApp() {
   const [inlineCNicFront, setInlineCNicFront] = useState('');
   const [inlineCNicBack, setInlineCNicBack] = useState('');
   const [inlineCError, setInlineCError] = useState('');
+  const [inlineIsDlForm, setInlineIsDlForm] = useState(false);
 
   /* -- Unseen rentals notifications -- */
   const [lastRentalsCount, setLastRentalsCount] = useState<number | null>(null);
@@ -249,6 +251,38 @@ export default function RentedApp() {
 
   /* -- Unified Customer Registration Modal -- */
   const [showCustRegModal, setShowCustRegModal] = useState(false);
+
+  /* -- NIC Scanner states & callback -- */
+  const [showNicScanner, setShowNicScanner] = useState(false);
+  const [scannerTarget, setScannerTarget] = useState<'global' | 'tab'>('tab');
+  const [custSearchQuery, setCustSearchQuery] = useState('');
+  const [showAddCustomerForm, setShowAddCustomerForm] = useState(false);
+  const [isDlForm, setIsDlForm] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  const handleScanConfirm = (details: {
+    name: string;
+    nic: string;
+    address: string;
+    frontPhoto: string;
+    backPhoto: string;
+  }) => {
+    if (scannerTarget === 'tab') {
+      setCName(details.name);
+      setCPhone2(details.nic);
+      setCAddress(details.address);
+      setCNicFront(details.frontPhoto);
+      setCNicBack(details.backPhoto);
+      setIsDlForm(!details.backPhoto);
+    } else {
+      setInlineCName(details.name);
+      setInlineCPhone2(details.nic);
+      setInlineCAddress(details.address);
+      setInlineCNicFront(details.frontPhoto);
+      setInlineCNicBack(details.backPhoto);
+      setInlineIsDlForm(!details.backPhoto);
+    }
+  };
 
   /* -- Cart customer registration inline -- */
   const [showRegisterInCart, setShowRegisterInCart] = useState(false);
@@ -390,6 +424,17 @@ export default function RentedApp() {
     return matchQ && matchC;
   });
 
+  const filteredCustomers = customers.filter(c => {
+    const q = custSearchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      c.name.toLowerCase().includes(q) ||
+      c.phone.toLowerCase().includes(q) ||
+      (c.nic || '').toLowerCase().includes(q) ||
+      c.address.toLowerCase().includes(q)
+    );
+  });
+
   const activeRentalsCount = rentals.filter(r => r.status !== 'completed' && !r.returnedDate).length;
   const availableCount = equipment.filter(e => getEquipmentAvailability(e).isAvailable).length;
 
@@ -421,7 +466,7 @@ export default function RentedApp() {
       if (phone.length < 6) { setAuthError('Please enter a valid mobile number.'); setAuthLoading(false); return; }
       const exists = await db.checkTenantExists(phone);
       if (exists) { setAuthError('This mobile number is already registered. Please sign in instead.'); setAuthLoading(false); return; }
-      setAuthSuccess('Verification code sent! For testing, use the last 4 digits of your number.');
+      setAuthSuccess('Verification code sent! Please enter the OTP.');
       setAuthView('verify_signup'); setAuthLoading(false);
     } else if (authView === 'verify_signup') {
       if (!authOtp) { setAuthError('Please enter the verification code.'); setAuthLoading(false); return; }
@@ -433,14 +478,15 @@ export default function RentedApp() {
       if (!phone) { setAuthError('Please enter your mobile number.'); setAuthLoading(false); return; }
       const exists = await db.checkTenantExists(phone);
       if (!exists && phone === '0777777777') { await db.createTenant('0777777777', 'Rented Admin'); }
-      else if (!exists) { setAuthError('This mobile number is not registered. Please create an account first.'); setAuthLoading(false); return; }
-      setAuthSuccess('Verification code sent! For testing, use the last 4 digits of your number.');
+      else if (!exists) { setAuthError('This mobile number is not registered. Please contact your administrator.'); setAuthLoading(false); return; }
+      setAuthSuccess('Verification code sent! Please enter the OTP.');
       setAuthView('verify_login'); setAuthLoading(false);
     } else if (authView === 'verify_login') {
       if (!authOtp) { setAuthError('Please enter the verification code.'); setAuthLoading(false); return; }
-      if (authOtp !== phone.slice(-4)) { setAuthError('Incorrect verification code.'); setAuthLoading(false); return; }
       const matched = await db.getTenant(phone);
       if (!matched) { setAuthError('User not found.'); setAuthLoading(false); return; }
+      const correctOtp = matched.verification_code || phone.slice(-4);
+      if (authOtp !== correctOtp) { setAuthError('Incorrect verification code.'); setAuthLoading(false); return; }
       setAuthSuccess('Verification successful! Logging you in...');
       setTimeout(() => { localStorage.setItem('rented_user', JSON.stringify(matched)); setUser(matched); setAuthLoading(false); setAuthPhone(''); setAuthName(''); setAuthOtp(''); }, 1000);
     }
@@ -578,7 +624,7 @@ export default function RentedApp() {
     setShowRegisterInBooking(false);
     setShowRegisterInCart(false);
     setShowCustRegModal(false);
-    setInlineCName(''); setInlineCPhone(''); setInlineCPhone2(''); setInlineCAddress(''); setInlineCNicFront(''); setInlineCNicBack(''); setInlineCError('');
+    setInlineCName(''); setInlineCPhone(''); setInlineCPhone2(''); setInlineCAddress(''); setInlineCNicFront(''); setInlineCNicBack(''); setInlineCError(''); setInlineIsDlForm(false);
   }
 
   /* ── Rental actions ── */
@@ -617,6 +663,18 @@ export default function RentedApp() {
     setTimeout(() => { setRentalEditDone(false); setShowRentalEdit(false); setRentalEdit({}); }, 1200);
   }
 
+  const resetCustomerForm = () => {
+    setCName('');
+    setCPhone('');
+    setCPhone2('');
+    setCAddress('');
+    setCNicFront('');
+    setCNicBack('');
+    setCError('');
+    setCDone(false);
+    setIsDlForm(false);
+  };
+
   /* ── Add customer ── */
   async function handleAddCustomer(e: React.FormEvent) {
     e.preventDefault();
@@ -627,7 +685,17 @@ export default function RentedApp() {
     await db.addCustomer({ name: cName.trim(), phone: cPhone.trim(), nic: cPhone2.trim(), address: cAddress.trim(), nicFrontPhoto: cNicFront, nicBackPhoto: cNicBack || undefined }, user?.phone);
     await loadData();
     setCDone(true);
-    setTimeout(() => { setCDone(false); setCName(''); setCPhone(''); setCPhone2(''); setCAddress(''); setCNicFront(''); setCNicBack(''); }, 1500);
+    setTimeout(() => {
+      resetCustomerForm();
+      setShowAddCustomerForm(false);
+    }, 1500);
+  }
+
+  async function handleDeleteCustomer(id: string) {
+    await db.deleteCustomer(id, user?.phone);
+    await loadData();
+    setSelectedCustomer(null);
+    setDeleteConfirmId(null);
   }
 
   /* ── Shop profile ── */
@@ -748,7 +816,6 @@ export default function RentedApp() {
                 <div className="auth-field-group">
                   <label className="auth-label">
                     <span>Verification Code</span>
-                    <span style={{ fontSize: 11, color: 'var(--blue-500)', fontWeight: 700 }}>Hint: {authPhone.slice(-4)}</span>
                   </label>
                   <div className="auth-input-wrapper">
                     <Lock size={18} className="auth-input-icon" />
@@ -763,9 +830,7 @@ export default function RentedApp() {
           </form>
 
           <div className="auth-footer">
-            {authView === 'login' && (<>Don't have an account?<span className="auth-link" onClick={() => { setAuthView('signup'); setAuthError(''); setAuthSuccess(''); }}> Create Account</span></>)}
-            {authView === 'signup' && (<>Already have an account?<span className="auth-link" onClick={() => { setAuthView('login'); setAuthError(''); setAuthSuccess(''); }}> Sign In</span></>)}
-            {isVerify && (<span className="auth-link" style={{ cursor: 'pointer' }} onClick={() => { setAuthView(authView === 'verify_login' ? 'login' : 'signup'); setAuthError(''); setAuthSuccess(''); setAuthOtp(''); }}>← Back</span>)}
+            {isVerify && (<span className="auth-link" style={{ cursor: 'pointer' }} onClick={() => { setAuthView('login'); setAuthError(''); setAuthSuccess(''); setAuthOtp(''); }}>← Back</span>)}
           </div>
         </div>
       </div>
@@ -795,7 +860,7 @@ export default function RentedApp() {
         <div className="header-inner">
           <Logo shopName={shopProfile?.name} shopLogo={shopProfile?.logo} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span className="header-user-name" style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-600)' }}>Hi, {user.name || user.phone}</span>
+            <span className="header-user-name" style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-600)' }}>Hi, {shopProfile?.name || user.name || user.phone}</span>
             <button onClick={handleLogout} className="btn-ghost btn btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-600)', background: 'var(--bg)', borderRadius: 'var(--radius-sm)', padding: '6px 12px' }}>
               <LogOut size={14} style={{ color: 'var(--red)' }} />
               <span style={{ fontWeight: 600 }}>{t('log_out')}</span>
@@ -830,12 +895,6 @@ export default function RentedApp() {
               </div>
             ))}
           </div>
-
-          <div className="sidebar-divider" />
-          <span className="sidebar-label">Account</span>
-          <button className="sidebar-item" style={{ color: 'var(--red)', marginTop: 4 }} onClick={handleLogout}>
-            <LogOut size={18} />{t('log_out')}
-          </button>
         </nav>
 
         {/* Main */}
@@ -1062,9 +1121,29 @@ export default function RentedApp() {
             {/* ─── CUSTOMERS TAB ─── */}
             {tab === 'customers' && (
               <div className="fade-up" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                <div>
-                  <div className="section-title">{t('customers_title')}</div>
-                  <div className="section-sub">{t('customers_sub')}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div className="section-title">{t('customers_title')}</div>
+                    <div className="section-sub">{t('customers_sub')}</div>
+                  </div>
+                  {!showAddCustomerForm && (
+                    <button className="btn btn-primary" onClick={() => setShowAddCustomerForm(true)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <PlusCircle size={16} />
+                      <span>{t('add_cust')}</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="search-wrap">
+                  <Search size={18} className="search-icon" />
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Search customers by name, phone, NIC, or address..."
+                    value={custSearchQuery}
+                    onChange={e => setCustSearchQuery(e.target.value)}
+                    id="directory-customer-search"
+                  />
                 </div>
 
                 <div className="form-layout">
@@ -1085,7 +1164,9 @@ export default function RentedApp() {
                           <tbody>
                             {customers.length === 0 ? (
                               <tr><td colSpan={4} style={{ padding: '40px 16px', textAlign: 'center', color: '#9ca3af' }}>No registered customers yet.</td></tr>
-                            ) : customers.map(c => (
+                            ) : filteredCustomers.length === 0 ? (
+                              <tr><td colSpan={4} style={{ padding: '40px 16px', textAlign: 'center', color: '#9ca3af' }}>No matching customers found.</td></tr>
+                            ) : filteredCustomers.map(c => (
                               <tr key={c.id} onClick={() => setSelectedCustomer(c)} style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }} className="table-row-hover">
                                 <td style={{ padding: '14px 16px', fontWeight: 600, color: 'var(--text-900)' }}>{c.name}</td>
                                 <td style={{ padding: '14px 16px' }}>
@@ -1095,38 +1176,50 @@ export default function RentedApp() {
                                 <td style={{ padding: '14px 16px', color: 'var(--text-600)' }}>{c.address}</td>
                                 <td style={{ padding: '14px 16px' }}>
                                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                                    {c.nicFrontPhoto && <span style={{ fontSize: 11, background: '#2563eb', color: '#fff', padding: '4px 8px', borderRadius: 4, fontWeight: 600 }}>Front</span>}
-                                    {c.nicBackPhoto ? <span style={{ fontSize: 11, background: '#f1f5f9', color: '#475569', padding: '4px 8px', borderRadius: 4, fontWeight: 600, border: '1px solid #cbd5e1' }}>Back</span> : <span style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic' }}>No Back</span>}
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                                  {!c.nicBackPhoto ? (
+                                    <span style={{ fontSize: 11, background: '#16a34a', color: '#fff', padding: '4px 8px', borderRadius: 4, fontWeight: 600 }}>Driving License</span>
+                                  ) : (
+                                    <>
+                                      {c.nicFrontPhoto && <span style={{ fontSize: 11, background: '#2563eb', color: '#fff', padding: '4px 8px', borderRadius: 4, fontWeight: 600 }}>Front</span>}
+                                      {c.nicBackPhoto && <span style={{ fontSize: 11, background: '#f1f5f9', color: '#475569', padding: '4px 8px', borderRadius: 4, fontWeight: 600, border: '1px solid #cbd5e1' }}>Back</span>}
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
 
-                      {/* ── Mobile / PWA Card List ── */}
-                      <div className="cust-cards-wrap" style={{ padding: '12px' }}>
-                        {customers.length === 0 ? (
-                          <div style={{ padding: '36px 16px', textAlign: 'center', color: '#9ca3af', fontSize: 14 }}>No registered customers yet.</div>
-                        ) : customers.map(c => (
-                          <div key={c.id} className="cust-card" onClick={() => setSelectedCustomer(c)}>
-                            <div className="cust-avatar">
-                              {c.name.trim().charAt(0).toUpperCase()}
-                            </div>
-                            <div className="cust-info">
-                              <div className="cust-name">{c.name}</div>
-                              <div className="cust-phone">{c.phone}{c.nic ? ` · NIC: ${c.nic}` : ''}</div>
-                              {c.address && <div className="cust-addr">{c.address}</div>}
-                            </div>
-                            <div className="cust-docs">
-                              {c.nicFrontPhoto && <span style={{ fontSize: 10, background: '#2563eb', color: '#fff', padding: '3px 7px', borderRadius: 4, fontWeight: 700 }}>Front</span>}
-                              {c.nicBackPhoto
-                                ? <span style={{ fontSize: 10, background: '#f1f5f9', color: '#475569', padding: '3px 7px', borderRadius: 4, fontWeight: 700, border: '1px solid #cbd5e1' }}>Back</span>
-                                : <span style={{ fontSize: 10, color: '#9ca3af', fontStyle: 'italic' }}>No Back</span>}
-                            </div>
+                    {/* ── Mobile / PWA Card List ── */}
+                    <div className="cust-cards-wrap" style={{ padding: '12px' }}>
+                      {customers.length === 0 ? (
+                        <div style={{ padding: '36px 16px', textAlign: 'center', color: '#9ca3af', fontSize: 14 }}>No registered customers yet.</div>
+                      ) : filteredCustomers.length === 0 ? (
+                        <div style={{ padding: '36px 16px', textAlign: 'center', color: '#9ca3af', fontSize: 14 }}>No matching customers found.</div>
+                      ) : filteredCustomers.map(c => (
+                        <div key={c.id} className="cust-card" onClick={() => setSelectedCustomer(c)}>
+                          <div className="cust-avatar">
+                            {c.name.trim().charAt(0).toUpperCase()}
                           </div>
-                        ))}
+                          <div className="cust-info">
+                            <div className="cust-name">{c.name}</div>
+                            <div className="cust-phone">{c.phone}{c.nic ? ` · ${!c.nicBackPhoto ? 'DL' : 'NIC'}: ${c.nic}` : ''}</div>
+                            {c.address && <div className="cust-addr">{c.address}</div>}
+                          </div>
+                          <div className="cust-docs">
+                            {!c.nicBackPhoto ? (
+                              <span style={{ fontSize: 10, background: '#16a34a', color: '#fff', padding: '3px 7px', borderRadius: 4, fontWeight: 700 }}>Driving License</span>
+                            ) : (
+                              <>
+                                {c.nicFrontPhoto && <span style={{ fontSize: 10, background: '#2563eb', color: '#fff', padding: '3px 7px', borderRadius: 4, fontWeight: 700 }}>Front</span>}
+                                {c.nicBackPhoto && <span style={{ fontSize: 10, background: '#f1f5f9', color: '#475569', padding: '3px 7px', borderRadius: 4, fontWeight: 700, border: '1px solid #cbd5e1' }}>Back</span>}
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                       </div>
 
                     </div>
@@ -1134,65 +1227,102 @@ export default function RentedApp() {
 
 
                   {/* Add Customer Form */}
-                  <div className="form-side">
-                    <div className="card-flat" style={{ padding: 20 }}>
-                      <h3 style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', marginBottom: 4 }}>{t('add_cust')}</h3>
-                      <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 16 }}>Register a new customer profile.</p>
-                      {cDone ? (
-                        <div className="success-panel" style={{ padding: '20px 10px' }}>
-                          <div className="success-icon"><CheckCircle size={28} /></div>
-                          <p style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>Customer Registered! 🎉</p>
+                  {showAddCustomerForm && (
+                    <div className="form-side">
+                      <div className="card-flat" style={{ padding: 20 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+                          <div>
+                            <h3 style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', marginBottom: 2 }}>{t('add_cust')}</h3>
+                            <p style={{ fontSize: 12, color: '#6b7280' }}>Register a new customer profile.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => { setShowAddCustomerForm(false); resetCustomerForm(); }}
+                            style={{ background: 'var(--surface-alt)', border: 'none', color: 'var(--text-600)', cursor: 'pointer', padding: 6, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, transition: 'background 0.2s' }}
+                            title="Close"
+                          >
+                            <X size={14} />
+                          </button>
                         </div>
-                      ) : (
-                        <form onSubmit={handleAddCustomer} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                          {cError && <p style={{ color: 'var(--red)', fontSize: 12, fontWeight: 600 }}>{cError}</p>}
-                          <div><label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{t('full_name')} *</label><input type="text" className="form-input" placeholder="Sarah Jenkins" value={cName} onChange={e => setCName(e.target.value)} required /></div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                            <div><label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{t('primary_mob')} *</label><input type="tel" className="form-input" placeholder="0771234567" value={cPhone} onChange={e => setCPhone(e.target.value)} required /></div>
-                            <div><label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{t('nic_number')} *</label><input type="text" className="form-input" placeholder="e.g. 199912345678" value={cPhone2} onChange={e => setCPhone2(e.target.value)} required /></div>
+                        {cDone ? (
+                          <div className="success-panel" style={{ padding: '20px 10px' }}>
+                            <div className="success-icon"><CheckCircle size={28} /></div>
+                            <p style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>Customer Registered! 🎉</p>
                           </div>
-                          <div><label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{t('address')} *</label><textarea className="form-input" rows={2} placeholder="12 Main Street..." value={cAddress} onChange={e => setCAddress(e.target.value)} style={{ resize: 'none' }} required /></div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                            {/* NIC Front */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                              <label style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>{t('nic_front')} *</label>
-                              {cNicFront ? (
-                                <div style={{ position: 'relative', width: '100%', height: 100, borderRadius: 10, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img src={cNicFront} alt="NIC Front" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                  <button type="button" onClick={() => setCNicFront('')} style={{ position: 'absolute', top: 6, right: 6, background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%', width: 18, height: 18, fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={10} /></button>
+                        ) : (
+                          <form onSubmit={handleAddCustomer} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                            <button
+                              type="button"
+                              onClick={() => { setScannerTarget('tab'); setShowNicScanner(true); }}
+                              className="btn btn-secondary"
+                              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px 14px', fontSize: 13, background: 'var(--blue-50)', color: 'var(--blue-600)', border: '1.5px dashed var(--blue-300)' }}
+                            >
+                              <Camera size={16} />
+                              <strong>📸 Scan NIC / Driving License</strong>
+                            </button>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: '#374151', cursor: 'pointer', margin: '2px 0' }}>
+                              <input
+                                type="checkbox"
+                                checked={isDlForm}
+                                onChange={(e) => {
+                                  setIsDlForm(e.target.checked);
+                                  if (e.target.checked) setCNicBack('');
+                                }}
+                                style={{ width: 16, height: 16, accentColor: '#2563eb' }}
+                              />
+                              <span>Driving License Document Type</span>
+                            </label>
+                            {cError && <p style={{ color: 'var(--red)', fontSize: 12, fontWeight: 600 }}>{cError}</p>}
+                            <div><label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{t('full_name')} *</label><input type="text" className="form-input" placeholder="Sarah Jenkins" value={cName} onChange={e => setCName(e.target.value)} required /></div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                              <div><label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{t('primary_mob')} *</label><input type="tel" className="form-input" placeholder="0771234567" value={cPhone} onChange={e => setCPhone(e.target.value)} required /></div>
+                              <div><label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{isDlForm ? 'Driving License / NIC *' : t('nic_number') + ' *'}</label><input type="text" className="form-input" placeholder="e.g. 199912345678" value={cPhone2} onChange={e => setCPhone2(e.target.value)} required /></div>
+                            </div>
+                            <div><label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{t('address')} *</label><textarea className="form-input" rows={2} placeholder="12 Main Street..." value={cAddress} onChange={e => setCAddress(e.target.value)} style={{ resize: 'none' }} required /></div>
+                            <div style={{ display: 'grid', gridTemplateColumns: isDlForm ? '1fr' : '1fr 1fr', gap: 12 }}>
+                              {/* NIC Front */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                <label style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>{isDlForm ? 'Driving License Photo *' : t('nic_front') + ' *'}</label>
+                                {cNicFront ? (
+                                  <div style={{ position: 'relative', width: '100%', height: 100, borderRadius: 10, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={cNicFront} alt="Document Photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    <button type="button" onClick={() => setCNicFront('')} style={{ position: 'absolute', top: 6, right: 6, background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%', width: 18, height: 18, fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={10} /></button>
+                                  </div>
+                                ) : (
+                                  <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, height: 100, border: '2px dashed #cbd5e1', borderRadius: 10, cursor: 'pointer', background: '#f8fafc', textAlign: 'center', padding: '10px 4px' }} className="upload-box-hover">
+                                    <Camera size={18} style={{ color: '#64748b' }} />
+                                    <span style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>{isDlForm ? 'Upload Photo' : 'Upload Front'}</span>
+                                    <input type="file" accept="image/*" onChange={e => processImage(e.target.files?.[0], setCNicFront)} style={{ display: 'none' }} required={!cNicFront} />
+                                  </label>
+                                )}
+                              </div>
+                              {/* NIC Back (only if not Driving License) */}
+                              {!isDlForm && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                  <label style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>{t('nic_back')}</label>
+                                  {cNicBack ? (
+                                    <div style={{ position: 'relative', width: '100%', height: 100, borderRadius: 10, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img src={cNicBack} alt="NIC Back" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                      <button type="button" onClick={() => setCNicBack('')} style={{ position: 'absolute', top: 6, right: 6, background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%', width: 18, height: 18, fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={10} /></button>
+                                    </div>
+                                  ) : (
+                                    <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, height: 100, border: '2px dashed #cbd5e1', borderRadius: 10, cursor: 'pointer', background: '#f8fafc', textAlign: 'center', padding: '10px 4px' }} className="upload-box-hover">
+                                      <Camera size={18} style={{ color: '#64748b' }} />
+                                      <span style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>Upload Back</span>
+                                      <input type="file" accept="image/*" onChange={e => processImage(e.target.files?.[0], setCNicBack)} style={{ display: 'none' }} />
+                                    </label>
+                                  )}
                                 </div>
-                              ) : (
-                                <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, height: 100, border: '2px dashed #cbd5e1', borderRadius: 10, cursor: 'pointer', background: '#f8fafc', textAlign: 'center', padding: '10px 4px' }} className="upload-box-hover">
-                                  <Camera size={18} style={{ color: '#64748b' }} />
-                                  <span style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>Upload Front</span>
-                                  <input type="file" accept="image/*" onChange={e => processImage(e.target.files?.[0], setCNicFront)} style={{ display: 'none' }} required={!cNicFront} />
-                                </label>
                               )}
                             </div>
-                            {/* NIC Back */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                              <label style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>{t('nic_back')}</label>
-                              {cNicBack ? (
-                                <div style={{ position: 'relative', width: '100%', height: 100, borderRadius: 10, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img src={cNicBack} alt="NIC Back" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                  <button type="button" onClick={() => setCNicBack('')} style={{ position: 'absolute', top: 6, right: 6, background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%', width: 18, height: 18, fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={10} /></button>
-                                </div>
-                              ) : (
-                                <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, height: 100, border: '2px dashed #cbd5e1', borderRadius: 10, cursor: 'pointer', background: '#f8fafc', textAlign: 'center', padding: '10px 4px' }} className="upload-box-hover">
-                                  <Camera size={18} style={{ color: '#64748b' }} />
-                                  <span style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>Upload Back</span>
-                                  <input type="file" accept="image/*" onChange={e => processImage(e.target.files?.[0], setCNicBack)} style={{ display: 'none' }} />
-                                </label>
-                              )}
-                            </div>
-                          </div>
-                          <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 4 }}>{t('reg_cust')}</button>
-                        </form>
-                      )}
+                            <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 4 }}>{t('reg_cust')}</button>
+                          </form>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1419,16 +1549,37 @@ export default function RentedApp() {
                     <h4 style={{ fontWeight: 800, color: '#0f172a', fontSize: 15 }}>Register Customer</h4>
                   </div>
                   <form onSubmit={handleInlineRegister} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <button
+                      type="button"
+                      onClick={() => { setScannerTarget('global'); setShowNicScanner(true); }}
+                      className="btn btn-secondary btn-sm"
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 12px', fontSize: 12, background: 'var(--blue-50)', color: 'var(--blue-600)', border: '1.5px dashed var(--blue-300)' }}
+                    >
+                      <Camera size={14} />
+                      <strong>📸 Scan NIC / Driving License</strong>
+                    </button>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: '#374151', cursor: 'pointer', margin: '2px 0' }}>
+                      <input
+                        type="checkbox"
+                        checked={inlineIsDlForm}
+                        onChange={(e) => {
+                          setInlineIsDlForm(e.target.checked);
+                          if (e.target.checked) setInlineCNicBack('');
+                        }}
+                        style={{ width: 16, height: 16, accentColor: '#2563eb' }}
+                      />
+                      <span>Driving License Document Type</span>
+                    </label>
                     {inlineCError && <p style={{ color: 'var(--red)', fontSize: 12, fontWeight: 600 }}>{inlineCError}</p>}
                     <input type="text" className="form-input" placeholder={t('full_name') + ' *'} value={inlineCName} onChange={e => setInlineCName(e.target.value)} required />
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                       <input type="tel" className="form-input" placeholder={t('primary_mob') + ' *'} value={inlineCPhone} onChange={e => setInlineCPhone(e.target.value)} required />
-                      <input type="text" className="form-input" placeholder={t('nic_number') + ' *'} value={inlineCPhone2} onChange={e => setInlineCPhone2(e.target.value)} required />
+                      <input type="text" className="form-input" placeholder={inlineIsDlForm ? 'Driving License / NIC *' : t('nic_number') + ' *'} value={inlineCPhone2} onChange={e => setInlineCPhone2(e.target.value)} required />
                     </div>
                     <textarea className="form-input" placeholder={t('address') + ' *'} rows={2} value={inlineCAddress} onChange={e => setInlineCAddress(e.target.value)} style={{ resize: 'none' }} required />
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: inlineIsDlForm ? '1fr' : '1fr 1fr', gap: 8 }}>
                       <div>
-                        <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>NIC Front *</label>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{inlineIsDlForm ? 'Driving License Photo *' : 'NIC Front *'}</label>
                         {inlineCNicFront ? (
                           <div style={{ position: 'relative', height: 80, borderRadius: 8, overflow: 'hidden' }}>
                             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1438,27 +1589,29 @@ export default function RentedApp() {
                         ) : (
                           <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, height: 80, border: '2px dashed #cbd5e1', borderRadius: 8, cursor: 'pointer', background: '#f8fafc', textAlign: 'center' }} className="upload-box-hover">
                             <Camera size={16} style={{ color: '#64748b' }} />
-                            <span style={{ fontSize: 10, fontWeight: 700, color: '#475569' }}>Front</span>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: '#475569' }}>{inlineIsDlForm ? 'Upload Photo' : 'Front'}</span>
                             <input type="file" accept="image/*" onChange={e => processImage(e.target.files?.[0], setInlineCNicFront)} style={{ display: 'none' }} required={!inlineCNicFront} />
                           </label>
                         )}
                       </div>
-                      <div>
-                        <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>NIC Back</label>
-                        {inlineCNicBack ? (
-                          <div style={{ position: 'relative', height: 80, borderRadius: 8, overflow: 'hidden' }}>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={inlineCNicBack} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                            <button type="button" onClick={() => setInlineCNicBack('')} style={{ position: 'absolute', top: 4, right: 4, background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%', width: 16, height: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={9} /></button>
-                          </div>
-                        ) : (
-                          <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, height: 80, border: '2px dashed #cbd5e1', borderRadius: 8, cursor: 'pointer', background: '#f8fafc', textAlign: 'center' }} className="upload-box-hover">
-                            <Camera size={16} style={{ color: '#64748b' }} />
-                            <span style={{ fontSize: 10, fontWeight: 700, color: '#475569' }}>Back</span>
-                            <input type="file" accept="image/*" onChange={e => processImage(e.target.files?.[0], setInlineCNicBack)} style={{ display: 'none' }} />
-                          </label>
-                        )}
-                      </div>
+                      {!inlineIsDlForm && (
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>NIC Back</label>
+                          {inlineCNicBack ? (
+                            <div style={{ position: 'relative', height: 80, borderRadius: 8, overflow: 'hidden' }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={inlineCNicBack} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              <button type="button" onClick={() => setInlineCNicBack('')} style={{ position: 'absolute', top: 4, right: 4, background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%', width: 16, height: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={9} /></button>
+                            </div>
+                          ) : (
+                            <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, height: 80, border: '2px dashed #cbd5e1', borderRadius: 8, cursor: 'pointer', background: '#f8fafc', textAlign: 'center' }} className="upload-box-hover">
+                              <Camera size={16} style={{ color: '#64748b' }} />
+                              <span style={{ fontSize: 10, fontWeight: 700, color: '#475569' }}>Back</span>
+                              <input type="file" accept="image/*" onChange={e => processImage(e.target.files?.[0], setInlineCNicBack)} style={{ display: 'none' }} />
+                            </label>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 8 }}>Register & Select Customer</button>
                   </form>
@@ -1626,16 +1779,37 @@ export default function RentedApp() {
                     <h4 style={{ fontWeight: 800, color: '#0f172a', fontSize: 15 }}>Register Customer</h4>
                   </div>
                   <form onSubmit={handleInlineRegister} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <button
+                      type="button"
+                      onClick={() => { setScannerTarget('global'); setShowNicScanner(true); }}
+                      className="btn btn-secondary btn-sm"
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 12px', fontSize: 12, background: 'var(--blue-50)', color: 'var(--blue-600)', border: '1.5px dashed var(--blue-300)' }}
+                    >
+                      <Camera size={14} />
+                      <strong>📸 Scan NIC / Driving License</strong>
+                    </button>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: '#374151', cursor: 'pointer', margin: '2px 0' }}>
+                      <input
+                        type="checkbox"
+                        checked={inlineIsDlForm}
+                        onChange={(e) => {
+                          setInlineIsDlForm(e.target.checked);
+                          if (e.target.checked) setInlineCNicBack('');
+                        }}
+                        style={{ width: 16, height: 16, accentColor: '#2563eb' }}
+                      />
+                      <span>Driving License Document Type</span>
+                    </label>
                     {inlineCError && <p style={{ color: 'var(--red)', fontSize: 12, fontWeight: 600 }}>{inlineCError}</p>}
                     <input type="text" className="form-input" placeholder={t('full_name') + ' *'} value={inlineCName} onChange={e => setInlineCName(e.target.value)} required />
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                       <input type="tel" className="form-input" placeholder={t('primary_mob') + ' *'} value={inlineCPhone} onChange={e => setInlineCPhone(e.target.value)} required />
-                      <input type="text" className="form-input" placeholder={t('nic_number') + ' *'} value={inlineCPhone2} onChange={e => setInlineCPhone2(e.target.value)} required />
+                      <input type="text" className="form-input" placeholder={inlineIsDlForm ? 'Driving License / NIC *' : t('nic_number') + ' *'} value={inlineCPhone2} onChange={e => setInlineCPhone2(e.target.value)} required />
                     </div>
                     <textarea className="form-input" placeholder={t('address') + ' *'} rows={2} value={inlineCAddress} onChange={e => setInlineCAddress(e.target.value)} style={{ resize: 'none' }} required />
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: inlineIsDlForm ? '1fr' : '1fr 1fr', gap: 8 }}>
                       <div>
-                        <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>NIC Front *</label>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{inlineIsDlForm ? 'Driving License Photo *' : 'NIC Front *'}</label>
                         {inlineCNicFront ? (
                           <div style={{ position: 'relative', height: 80, borderRadius: 8, overflow: 'hidden' }}>
                             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1645,27 +1819,29 @@ export default function RentedApp() {
                         ) : (
                           <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, height: 80, border: '2px dashed #cbd5e1', borderRadius: 8, cursor: 'pointer', background: '#f8fafc', textAlign: 'center' }} className="upload-box-hover">
                             <Camera size={16} style={{ color: '#64748b' }} />
-                            <span style={{ fontSize: 10, fontWeight: 700, color: '#475569' }}>Front</span>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: '#475569' }}>{inlineIsDlForm ? 'Upload Photo' : 'Front'}</span>
                             <input type="file" accept="image/*" onChange={e => processImage(e.target.files?.[0], setInlineCNicFront)} style={{ display: 'none' }} required={!inlineCNicFront} />
                           </label>
                         )}
                       </div>
-                      <div>
-                        <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>NIC Back</label>
-                        {inlineCNicBack ? (
-                          <div style={{ position: 'relative', height: 80, borderRadius: 8, overflow: 'hidden' }}>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={inlineCNicBack} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                            <button type="button" onClick={() => setInlineCNicBack('')} style={{ position: 'absolute', top: 4, right: 4, background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%', width: 16, height: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={9} /></button>
-                          </div>
-                        ) : (
-                          <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, height: 80, border: '2px dashed #cbd5e1', borderRadius: 8, cursor: 'pointer', background: '#f8fafc', textAlign: 'center' }} className="upload-box-hover">
-                            <Camera size={16} style={{ color: '#64748b' }} />
-                            <span style={{ fontSize: 10, fontWeight: 700, color: '#475569' }}>Back</span>
-                            <input type="file" accept="image/*" onChange={e => processImage(e.target.files?.[0], setInlineCNicBack)} style={{ display: 'none' }} />
-                          </label>
-                        )}
-                      </div>
+                      {!inlineIsDlForm && (
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>NIC Back</label>
+                          {inlineCNicBack ? (
+                            <div style={{ position: 'relative', height: 80, borderRadius: 8, overflow: 'hidden' }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={inlineCNicBack} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              <button type="button" onClick={() => setInlineCNicBack('')} style={{ position: 'absolute', top: 4, right: 4, background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%', width: 16, height: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={9} /></button>
+                            </div>
+                          ) : (
+                            <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, height: 80, border: '2px dashed #cbd5e1', borderRadius: 8, cursor: 'pointer', background: '#f8fafc', textAlign: 'center' }} className="upload-box-hover">
+                              <Camera size={16} style={{ color: '#64748b' }} />
+                              <span style={{ fontSize: 10, fontWeight: 700, color: '#475569' }}>Back</span>
+                              <input type="file" accept="image/*" onChange={e => processImage(e.target.files?.[0], setInlineCNicBack)} style={{ display: 'none' }} />
+                            </label>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Register & Select Customer</button>
                   </form>
@@ -1995,14 +2171,14 @@ export default function RentedApp() {
 
       {/* ── Customer Detail Modal ── */}
       {selectedCustomer && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setSelectedCustomer(null); }}>
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setSelectedCustomer(null); setDeleteConfirmId(null); } }}>
           <div className="modal-box fade-up" style={{ padding: 24, maxWidth: 600 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, borderBottom: '1px solid #e2e8f0', paddingBottom: 14 }}>
               <div>
                 <h3 style={{ fontSize: 18, fontWeight: 900, color: '#0f172a', lineHeight: 1.2 }}>{selectedCustomer.name}</h3>
                 <p style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>Registered Shop Client</p>
               </div>
-              <button onClick={() => setSelectedCustomer(null)} style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#6b7280', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={16} /></button>
+              <button onClick={() => { setSelectedCustomer(null); setDeleteConfirmId(null); }} style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#6b7280', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={16} /></button>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -2016,26 +2192,31 @@ export default function RentedApp() {
                   <p style={{ fontSize: 14, color: '#2563eb', fontWeight: 800 }}>{selectedCustomer.phone}</p>
                 </div>
                 <div>
-                  <p style={{ fontSize: 10, textTransform: 'uppercase', color: '#94a3b8', fontWeight: 800, letterSpacing: 0.5, marginBottom: 2 }}>{t('nic_number')}</p>
+                  <p style={{ fontSize: 10, textTransform: 'uppercase', color: '#94a3b8', fontWeight: 800, letterSpacing: 0.5, marginBottom: 2 }}>
+                    {!selectedCustomer.nicBackPhoto ? 'Driving License / NIC Number' : t('nic_number')}
+                  </p>
                   <p style={{ fontSize: 14, color: '#475569', fontWeight: 700 }}>{selectedCustomer.nic || 'Not provided'}</p>
                 </div>
               </div>
 
               <div>
                 <p style={{ fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Shield size={14} style={{ color: '#2563eb' }} /> NIC Verification Documents
+                  <Shield size={14} style={{ color: '#2563eb' }} /> {!selectedCustomer.nicBackPhoto ? 'Driving License Verification' : 'NIC Verification Documents'}
                 </p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  {[
-                    { label: 'NIC FRONT SIDE', photo: selectedCustomer.nicFrontPhoto },
-                    { label: 'NIC BACK SIDE', photo: selectedCustomer.nicBackPhoto },
-                  ].map(({ label, photo }) => (
+                <div style={{ display: 'grid', gridTemplateColumns: !selectedCustomer.nicBackPhoto ? '1fr' : '1fr 1fr', gap: 12 }}>
+                  {(!selectedCustomer.nicBackPhoto
+                    ? [{ label: 'DRIVING LICENSE FRONT', photo: selectedCustomer.nicFrontPhoto }]
+                    : [
+                        { label: 'NIC FRONT SIDE', photo: selectedCustomer.nicFrontPhoto },
+                        { label: 'NIC BACK SIDE', photo: selectedCustomer.nicBackPhoto },
+                      ]
+                  ).map(({ label, photo }) => (
                     <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textAlign: 'center' }}>{label}</span>
-                      <div style={{ border: '1px solid #cbd5e1', borderRadius: 10, overflow: 'hidden', aspectRatio: '1.6/1', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div style={{ border: '1px solid #cbd5e1', borderRadius: 10, overflow: 'hidden', aspectRatio: !selectedCustomer.nicBackPhoto ? '2.5/1' : '1.6/1', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         {photo ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={photo} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'zoom-in' }} onClick={() => { const w = window.open(); if (w) w.document.write(`<img src="${photo}" style="max-width:100%;max-height:100%;position:absolute;inset:0;margin:auto;" />`); }} />
+                          <img src={photo} alt={label} style={{ width: '100%', height: '100%', objectFit: 'contain', cursor: 'zoom-in' }} onClick={() => { const w = window.open(); if (w) w.document.write(`<img src="${photo}" style="max-width:100%;max-height:100%;position:absolute;inset:0;margin:auto;" />`); }} />
                         ) : (
                           <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>No photo</span>
                         )}
@@ -2046,10 +2227,27 @@ export default function RentedApp() {
               </div>
 
               <div style={{ display: 'flex', gap: 10 }}>
-                <a href={`tel:${selectedCustomer.phone}`} className="btn btn-primary" style={{ flex: 1, padding: '10px 14px', fontSize: 13, textDecoration: 'none', textAlign: 'center', fontWeight: 700 }}>
+                {deleteConfirmId === selectedCustomer.id ? (
+                  <button
+                    onClick={() => handleDeleteCustomer(selectedCustomer.id)}
+                    className="btn animate-pulse"
+                    style={{ flex: 1, padding: '10px 14px', fontSize: 12, background: 'var(--red)', color: '#fff', fontWeight: 700 }}
+                  >
+                    ⚠️ Confirm Delete?
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setDeleteConfirmId(selectedCustomer.id)}
+                    className="btn"
+                    style={{ flex: 1, padding: '10px 14px', fontSize: 12, background: '#fee2e2', color: 'var(--red)', border: '1px solid #fecaca', fontWeight: 700 }}
+                  >
+                    🗑️ Delete Customer
+                  </button>
+                )}
+                <a href={`tel:${selectedCustomer.phone}`} className="btn btn-primary" style={{ flex: 1, padding: '10px 14px', fontSize: 12, textDecoration: 'none', textAlign: 'center', fontWeight: 700 }}>
                   <Phone size={14} style={{ marginRight: 6 }} />{t('call_client')}
                 </a>
-                <button onClick={() => setSelectedCustomer(null)} className="btn-ghost btn" style={{ flex: 1, padding: '10px 14px', fontSize: 13, background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1', fontWeight: 700 }}>
+                <button onClick={() => { setSelectedCustomer(null); setDeleteConfirmId(null); }} className="btn-ghost btn" style={{ flex: 1, padding: '10px 14px', fontSize: 12, background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1', fontWeight: 700 }}>
                   {t('close')}
                 </button>
               </div>
@@ -2066,16 +2264,37 @@ export default function RentedApp() {
               <button onClick={() => setShowCustRegModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280' }}><X size={18} /></button>
             </div>
             <form onSubmit={handleInlineRegister} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <button
+                type="button"
+                onClick={() => { setScannerTarget('global'); setShowNicScanner(true); }}
+                className="btn btn-secondary btn-sm"
+                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 12px', fontSize: 12, background: 'var(--blue-50)', color: 'var(--blue-600)', border: '1.5px dashed var(--blue-300)' }}
+              >
+                <Camera size={14} />
+                <strong>📸 Scan NIC / Driving License</strong>
+              </button>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: '#374151', cursor: 'pointer', margin: '2px 0' }}>
+                <input
+                  type="checkbox"
+                  checked={inlineIsDlForm}
+                  onChange={(e) => {
+                    setInlineIsDlForm(e.target.checked);
+                    if (e.target.checked) setInlineCNicBack('');
+                  }}
+                  style={{ width: 16, height: 16, accentColor: '#2563eb' }}
+                />
+                <span>Driving License Document Type</span>
+              </label>
               {inlineCError && <p style={{ color: 'var(--red)', fontSize: 12, fontWeight: 600 }}>{inlineCError}</p>}
               <input type="text" className="form-input" placeholder={t('full_name') + ' *'} value={inlineCName} onChange={e => setInlineCName(e.target.value)} required />
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <input type="tel" className="form-input" placeholder={t('primary_mob') + ' *'} value={inlineCPhone} onChange={e => setInlineCPhone(e.target.value)} required />
-                <input type="text" className="form-input" placeholder={t('nic_number') + ' *'} value={inlineCPhone2} onChange={e => setInlineCPhone2(e.target.value)} required />
+                <input type="text" className="form-input" placeholder={inlineIsDlForm ? 'Driving License / NIC *' : t('nic_number') + ' *'} value={inlineCPhone2} onChange={e => setInlineCPhone2(e.target.value)} required />
               </div>
               <textarea className="form-input" placeholder={t('address') + ' *'} rows={2} value={inlineCAddress} onChange={e => setInlineCAddress(e.target.value)} style={{ resize: 'none' }} required />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: inlineIsDlForm ? '1fr' : '1fr 1fr', gap: 8 }}>
                 <div>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>NIC Front *</label>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{inlineIsDlForm ? 'Driving License Photo *' : 'NIC Front *'}</label>
                   {inlineCNicFront ? (
                     <div style={{ position: 'relative', height: 80, borderRadius: 8, overflow: 'hidden' }}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -2085,33 +2304,41 @@ export default function RentedApp() {
                   ) : (
                     <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, height: 80, border: '2px dashed #cbd5e1', borderRadius: 8, cursor: 'pointer', background: '#f8fafc', textAlign: 'center' }} className="upload-box-hover">
                       <Camera size={16} style={{ color: '#64748b' }} />
-                      <span style={{ fontSize: 10, fontWeight: 700, color: '#475569' }}>Front</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#475569' }}>{inlineIsDlForm ? 'Upload Photo' : 'Front'}</span>
                       <input type="file" accept="image/*" onChange={e => processImage(e.target.files?.[0], setInlineCNicFront)} style={{ display: 'none' }} required={!inlineCNicFront} />
                     </label>
                   )}
                 </div>
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>NIC Back</label>
-                  {inlineCNicBack ? (
-                    <div style={{ position: 'relative', height: 80, borderRadius: 8, overflow: 'hidden' }}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={inlineCNicBack} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      <button type="button" onClick={() => setInlineCNicBack('')} style={{ position: 'absolute', top: 4, right: 4, background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%', width: 16, height: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={9} /></button>
-                    </div>
-                  ) : (
-                    <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, height: 80, border: '2px dashed #cbd5e1', borderRadius: 8, cursor: 'pointer', background: '#f8fafc', textAlign: 'center' }} className="upload-box-hover">
-                      <Camera size={16} style={{ color: '#64748b' }} />
-                      <span style={{ fontSize: 10, fontWeight: 700, color: '#475569' }}>Back</span>
-                      <input type="file" accept="image/*" onChange={e => processImage(e.target.files?.[0], setInlineCNicBack)} style={{ display: 'none' }} />
-                    </label>
-                  )}
-                </div>
+                {!inlineIsDlForm && (
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>NIC Back</label>
+                    {inlineCNicBack ? (
+                      <div style={{ position: 'relative', height: 80, borderRadius: 8, overflow: 'hidden' }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={inlineCNicBack} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <button type="button" onClick={() => setInlineCNicBack('')} style={{ position: 'absolute', top: 4, right: 4, background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%', width: 16, height: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={9} /></button>
+                      </div>
+                    ) : (
+                      <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, height: 80, border: '2px dashed #cbd5e1', borderRadius: 8, cursor: 'pointer', background: '#f8fafc', textAlign: 'center' }} className="upload-box-hover">
+                        <Camera size={16} style={{ color: '#64748b' }} />
+                        <span style={{ fontSize: 10, fontWeight: 700, color: '#475569' }}>Back</span>
+                        <input type="file" accept="image/*" onChange={e => processImage(e.target.files?.[0], setInlineCNicBack)} style={{ display: 'none' }} />
+                      </label>
+                    )}
+                  </div>
+                )}
               </div>
               <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 8 }}>Register & Select Customer</button>
             </form>
           </div>
         </div>
       )}
+      {/* ── NIC Scanner Modal Overlay ── */}
+      <NICScanner
+        isOpen={showNicScanner}
+        onClose={() => setShowNicScanner(false)}
+        onConfirm={handleScanConfirm}
+      />
     </div>
   );
 }
